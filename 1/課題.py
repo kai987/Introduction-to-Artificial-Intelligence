@@ -1,10 +1,7 @@
 import math
 import random
-import time
 
 # sin(x) + x + 0.7 = 0 
-
-random.seed(time.time ())
 
 
 for i in range(0, 100000):
