@@ -60,43 +60,92 @@ print(f"平均情報量 {probs_2}: {entropy_value_2:.4f} bits")
 #平均情報量 {A, B, C, D, E} = {0.5, 0.2, 0.1, 0.1, 0.1}: 1.9610 bits
 #平均情報量 {A, B, C, D} = {0.4, 0.3, 0.1, 0.2}: 1.8464 bits
 
+
 '''
 課題3
 '''
+from math import log2
 
+import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-from sklearn.tree import DecisionTreeClassifier
 
-# 1. 元のデータを生成
-data = {
-    'Weather':   ['Sunny','Cloudy','Sunny','Cloudy','Rainy','Rainy','Rainy','Sunny','Cloudy','Rainy'],
-    'Temperature':['Hot','Hot','Mild','Mild','Mild','Cool','Mild','Hot','Hot','Mild'],
-    'Humidity':  ['High','High','Normal','High','High','Normal','High','High','Normal','High'],
-    'Wind':      ['Weak','Weak','Strong','Strong','Strong','Strong','Weak','Strong','Weak','Strong'],
-    'Play':      ['No','Yes','Yes','Yes','No','No','Yes','No','Yes','No']
-}
-df = pd.DataFrame(data)
+# ------------------------------
+# 1. 元データの作成
+# ------------------------------
+df = pd.DataFrame([
+    (1, 'Sunny',  'Hot',  'High',   'Weak',   'No'),
+    (2, 'Cloudy', 'Hot',  'High',   'Weak',   'Yes'),
+    (3, 'Sunny',  'Mild', 'Normal', 'Strong', 'Yes'),
+    (4, 'Cloudy', 'Mild', 'High',   'Strong', 'Yes'),
+    (5, 'Rainy',  'Mild', 'High',   'Strong', 'No'),
+    (6, 'Rainy',  'Cool', 'Normal', 'Strong', 'No'),
+    (7, 'Rainy',  'Mild', 'High',   'Weak',   'Yes'),
+    (8, 'Sunny',  'Hot',  'High',   'Strong', 'No'),
+    (9, 'Cloudy', 'Hot',  'Normal', 'Weak',   'Yes'),
+    (10,'Rainy',  'Mild', 'High',   'Strong', 'No'),
+], columns=['Day','Weather','Temperature','Humidity','Wind','Play'])
 
-# 2. カテゴリ変数を数値にエンコード
-le = LabelEncoder()
-df_encoded = df.apply(le.fit_transform)
+print("元データ:", df)
 
-# 特徴量とラベルに分割
-X = df_encoded.drop(columns='Play')
-y = df_encoded['Play']
+# ------------------------------
+# 2. ヘルパー関数：エントロピー＆情報利得
+# ------------------------------
+def entropy(series: pd.Series) -> float:
+    """ 二値分類 (Yes/No) 列のシャノンエントロピーを計算する）"""
+    counts = series.value_counts()
+    total  = counts.sum()
+    probs  = counts / total
+    return -np.sum(probs * np.log2(probs + 1e-9))  # 小さな値を加えて log(0) を回避
 
-# 3. 決定木 (エントロピー基準) によって特徴重要度（情報利得）を計算
-clf = DecisionTreeClassifier(criterion='entropy')
-clf.fit(X, y)
+def info_gain(df: pd.DataFrame, attr: str, target: str='Play') -> float:
+    """元のエントロピー"""
+    h_orig = entropy(df[target])
+    # 条件付きエントロピーの計算
+    cond_entropy = 0.0
+    for v, sub in df.groupby(attr):
+        weight = len(sub) / len(df)
+        cond_entropy += weight * entropy(sub[target])
+    return h_orig - cond_entropy
 
-# 4. 結果を整理して表示
-importances = pd.Series(clf.feature_importances_, index=X.columns)
-df_gain = importances.reset_index()
-df_gain.columns = ['Attribute', 'Importance']
-print("使用DecisionTreeClassifier计算的信息利得:")
-print(df_gain)
+# ------------------------------
+# 3. 属性ごとの条件付きエントロピー明細 & 利得計算
+# ------------------------------
+attributes = ['Weather', 'Wind', 'Temperature', 'Humidity']
+gain_list = []
+
+for attr in attributes:
+    h_details = []
+    cond_entropy = 0.0
+    for v, sub in df.groupby(attr):
+        weight = len(sub)/len(df)
+        h_sub   = entropy(sub['Play'])
+        cond_entropy += weight * h_sub
+        h_details.append({
+            attr: v,
+            '件数': len(sub),
+            'Yes数':  (sub['Play']=='Yes').sum(),
+            'No数' :  (sub['Play']=='No').sum(),
+            'エントロピー': round(h_sub, 3),
+            '重み': round(weight, 3),
+            '加重エントロピー': round(weight*h_sub, 3)
+        })
+    print(f"{attr} の条件付きエントロピー明細:")
+    print(pd.DataFrame(h_details))
+    # 情報利得を記録
+    gain_list.append({'属性': attr,
+                      '情報利得': round(entropy(df['Play']) - cond_entropy, 3)})
+
+# ------------------------------
+# 4. 属性情報利得の比較表
+gain_df = pd.DataFrame(gain_list).sort_values('情報利得', ascending=False).reset_index(drop=True)
+print("属性ごとの情報利得比較:", gain_df)
+'''
+0      Weather  0.400
+1         Wind  0.125
+2  Temperature  0.115
+3     Humidity  0.035
+'''
 
 # 結論
 # 天気は最も重要度が高く、手動で計算した 0.400 に最も近いため、ルート ノードとして最適な選択であることが確認できます。
-# 他の機能の順序も、以前の手動計算と一致しています: 湿度 > 温度 > 風。
+# 他の機能の順序も、以前の手動計算と一致しています: 風 > 温度 > 湿度。
